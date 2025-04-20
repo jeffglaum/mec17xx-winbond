@@ -23,6 +23,7 @@ typedef struct {
 void timer_enable(void);
 void platform_qmspi_init(uint8_t spi_port);
 uint8_t w25m512_sector_erase_sequence(uint32_t erase_address, uint32_t *qmspi_status);
+uint8_t w25m512_chip_erase_sequence(uint32_t *qmspi_status);
 uint8_t w25m512_program_page_sequence(uint32_t spi_addr, uint32_t mem_addr, uint32_t data_len, uint32_t *qmspi_status);
 
 // NOTE: initialize the global so it lands in the .data section (probe-rs
@@ -109,6 +110,24 @@ uint32_t ProgramPage(uint32_t page_address, uint32_t data_size, uint32_t buffer_
     }
 
     return w25m512_program_page_sequence(page_address, buffer_address, data_size, &qmspi_status);
+}
+
+/**
+ * @brief       Erase the entire SPI NOR flash part
+ *
+ * @param[in]   None
+ *
+ * @return      Returns zero for success or non-zero for failure
+ *
+ */
+__attribute__((section(".api")))
+__attribute__((noinline))
+__attribute__((used))
+uint32_t EraseChip()
+{
+    uint32_t qmspi_status = 0; 
+
+    return w25m512_chip_erase_sequence(&qmspi_status);
 }
 
 // -----------------------------------------------------------------------------
@@ -451,6 +470,54 @@ uint8_t w25m512_sector_erase(uint32_t address, uint32_t *qmspi_status)
 }
 
 /**
+ * @brief       Erase a SPI NOR flash (single die chip erase)
+ *
+ * @param[out]   qmspi_status   Status reported by the quad-SPI controller
+ *
+ * @return      Returns zero for success or non-zero for failure
+ *
+ */
+uint8_t w25m512_chip_erase(uint32_t *qmspi_status)
+{
+    SERIAL_FLASH_COMMAND cmd;
+    uint8_t cmd_buffer[COMMAND_BUFFER_SIZE]={0}; 
+    
+	cmd_buffer[0] = 0xC7;
+        
+    cmd.write_buf = &cmd_buffer[0];
+    cmd.write_len = 1;
+    cmd.read_buf = NULL;
+    cmd.read_len = 0;
+
+    return flash_process_cmd(&cmd, qmspi_status);   
+}
+
+/**
+ * @brief       Write to the SPI NOR extended address register
+ *
+ * @param[in]   value          Value to be writted to the extended address register
+ * @param[out]  qmspi_status   Status reported by the quad-SPI controller
+ *
+ * @return      Returns zero for success or non-zero for failure
+ *
+ */
+uint8_t w25m512_write_extended_address_register(uint8_t value, uint32_t *qmspi_status)
+{
+    SERIAL_FLASH_COMMAND cmd;
+    uint8_t cmd_buffer[COMMAND_BUFFER_SIZE]={0}; 
+    
+	cmd_buffer[0] = 0xC5;
+	cmd_buffer[1] = value;
+        
+    cmd.write_buf = &cmd_buffer[0];
+    cmd.write_len = 2;
+    cmd.read_buf = NULL;
+    cmd.read_len = 0;
+
+    return flash_process_cmd(&cmd, qmspi_status);   
+}
+
+/**
  * @brief       Read SPI NOR flash status register
  *
  * @param[out]   status         Status register value read
@@ -689,6 +756,59 @@ uint8_t w25m512_sector_erase_sequence(uint32_t sector_address, uint32_t *qmspi_s
             ret_val = 1;
             break;
         } 
+    } while (0);
+    
+    return ret_val;    
+}
+
+/**
+ * @brief       Full sequence to completely erase a the SPI NOR flash
+ *
+ * @param[out]  qmspi_status    Status reported by the quad-SPI controller
+ *
+ * @return      Returns zero for success or non-zero for failure
+ *
+ */
+uint8_t w25m512_chip_erase_sequence(uint32_t *qmspi_status)
+{    
+    uint8_t ret_val = 0;
+    uint8_t busy_status = 0;
+    uint8_t die_number;
+    
+    do {
+        // Enable writes to flash
+        if (w25m512_write_enable(qmspi_status)) {
+            ret_val = 1;
+            break;
+        }        
+
+        // Issue a chip erase for each die (there are two)
+        for (die_number = 0 ; die_number < 2 ; die_number++) {
+            // Select chip die by number
+            if (w25m512_write_extended_address_register(die_number, qmspi_status)) {
+                ret_val = 1;
+                break;
+            }
+
+            // Erase flash for the selected die
+            if (w25m512_chip_erase(qmspi_status)) {
+                ret_val = 1;
+                break;
+            }        
+    
+            // Wait for erase to complete
+            timer_delay_ms(CHIP_ERASE_TYP_TIME_MS);
+
+            // Check busy bit by polling
+            ret_val = w25m512_check_busy(&busy_status, 
+                                         CHIP_ERASE_CHECK_BUSY_TIME_MS, 
+                                         CHIP_ERASE_CHECK_BUSY_POLL_MS, 
+                                         qmspi_status);
+            if (ret_val || busy_status) {
+                ret_val = 1;
+                break;
+            } 
+        }
     } while (0);
     
     return ret_val;    
