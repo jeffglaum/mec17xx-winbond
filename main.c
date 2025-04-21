@@ -493,21 +493,21 @@ uint8_t w25m512_chip_erase(uint32_t *qmspi_status)
 }
 
 /**
- * @brief       Write to the SPI NOR extended address register
+ * @brief       Select the active NOR flash chip die number
  *
- * @param[in]   value          Value to be writted to the extended address register
+ * @param[in]   die_number     Die number to be selected
  * @param[out]  qmspi_status   Status reported by the quad-SPI controller
  *
  * @return      Returns zero for success or non-zero for failure
  *
  */
-uint8_t w25m512_write_extended_address_register(uint8_t value, uint32_t *qmspi_status)
+uint8_t w25m512_die_select(uint8_t die_number, uint32_t *qmspi_status)
 {
     SERIAL_FLASH_COMMAND cmd;
     uint8_t cmd_buffer[COMMAND_BUFFER_SIZE]={0}; 
     
-	cmd_buffer[0] = 0xC5;
-	cmd_buffer[1] = value;
+	cmd_buffer[0] = 0xC2;
+	cmd_buffer[1] = die_number;
         
     cmd.write_buf = &cmd_buffer[0];
     cmd.write_len = 2;
@@ -552,10 +552,10 @@ uint8_t w25m512_read_status_register(uint8_t *status, uint32_t *qmspi_status)
  * @return      Returns zero for success or non-zero for failure
  *
  */
-uint8_t w25m512_check_busy(uint8_t *busy_status, uint16_t timeout_ms, uint16_t read_interval_ms, uint32_t *qmspi_status)
+uint8_t w25m512_check_busy(uint8_t *busy_status, uint32_t timeout_ms, uint32_t read_interval_ms, uint32_t *qmspi_status)
 {
     uint8_t read_status, ret_val=0;
-    uint16_t delay_ms;
+    uint32_t delay_ms;
     
     *busy_status = 1;
     
@@ -768,48 +768,72 @@ uint8_t w25m512_sector_erase_sequence(uint32_t sector_address, uint32_t *qmspi_s
  *
  * @return      Returns zero for success or non-zero for failure
  *
+ * @note        There are two dies on this chip.  The erase is performed in parallel.
  */
 uint8_t w25m512_chip_erase_sequence(uint32_t *qmspi_status)
 {    
     uint8_t ret_val = 0;
-    uint8_t busy_status = 0;
     uint8_t die_number;
-    
-    do {
+    uint8_t die_busy;
+   
+    // There are two dies on this chip.  Issue parallel die erases in order to save time.
+    for (die_number = 0 ; die_number < 2 ; die_number++) {
+
+        // Select the chip die by number
+        if (w25m512_die_select(die_number, qmspi_status)) {
+            ret_val = 1;
+            goto exit;
+        }
+
         // Enable writes to flash
         if (w25m512_write_enable(qmspi_status)) {
             ret_val = 1;
-            break;
+            goto exit;
         }        
 
-        // Issue a chip erase for each die (there are two)
-        for (die_number = 0 ; die_number < 2 ; die_number++) {
-            // Select chip die by number
-            if (w25m512_write_extended_address_register(die_number, qmspi_status)) {
-                ret_val = 1;
-                break;
-            }
+        // Erase flash on the selected die
+        if (w25m512_chip_erase(qmspi_status)) {
+            ret_val = 1;
+            goto exit;
+        }        
+    }
 
-            // Erase flash for the selected die
-            if (w25m512_chip_erase(qmspi_status)) {
-                ret_val = 1;
-                break;
-            }        
-    
-            // Wait for erase to complete
-            timer_delay_ms(CHIP_ERASE_TYP_TIME_MS);
-
-            // Check busy bit by polling
-            ret_val = w25m512_check_busy(&busy_status, 
-                                         CHIP_ERASE_CHECK_BUSY_TIME_MS, 
-                                         CHIP_ERASE_CHECK_BUSY_POLL_MS, 
-                                         qmspi_status);
-            if (ret_val || busy_status) {
-                ret_val = 1;
-                break;
-            } 
+    // Now wait for both to finish
+    do {
+        // Select die 0
+        if (w25m512_die_select(0, qmspi_status)) {
+            ret_val = 1;
+            break;
         }
+
+        // Check if die0 is still busy
+        ret_val = w25m512_check_busy(&die_busy, 
+                                     80000,     // Wait up to 80 seconds (normally finished in 68 seconds)
+                                     CHIP_ERASE_CHECK_BUSY_POLL_MS, 
+                                     qmspi_status);
+        if (ret_val || die_busy) {
+            ret_val = 1;
+            break;
+        } 
+
+        // Select die 1
+        if (w25m512_die_select(1, qmspi_status)) {
+            ret_val = 1;
+            break;
+        }
+
+        // Check if die1 is still busy (by now we've waited on die0 and so
+        // erasing die1 shouldn't take that much longer)
+        ret_val = w25m512_check_busy(&die_busy, 
+                                     10000,     // Wait up to 10 seconds
+                                     CHIP_ERASE_CHECK_BUSY_POLL_MS, 
+                                     qmspi_status);
+        if (ret_val || die_busy) {
+            ret_val = 1;
+            break;
+        } 
     } while (0);
-    
+
+exit:
     return ret_val;    
 }
