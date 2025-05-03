@@ -8,7 +8,7 @@
 
 // Retry count for polling 'api_qmspi_is_done_status' in milliseconds
 #define QMSPI_STATUS_RETRY_COUNT    200
-#define W25M512_SECTOR_SIZE         0x100
+#define W25M512_PAGE_SIZE           0x100
 #define COMMAND_BUFFER_SIZE         4
 
 typedef struct {    
@@ -23,7 +23,7 @@ typedef struct {
 void timer_enable(void);
 void platform_qmspi_init(uint8_t spi_port);
 uint8_t w25m512_sector_erase_sequence(uint32_t erase_address, uint32_t *qmspi_status);
-uint8_t w25m512_chip_erase_sequence(uint32_t *qmspi_status);
+//uint8_t w25m512_chip_erase_sequence(uint32_t *qmspi_status);
 uint8_t w25m512_program_page_sequence(uint32_t spi_addr, uint32_t mem_addr, uint32_t data_len, uint32_t *qmspi_status);
 
 // NOTE: initialize the global so it lands in the .data section (probe-rs
@@ -120,15 +120,15 @@ uint32_t ProgramPage(uint32_t page_address, uint32_t data_size, uint32_t buffer_
  * @return      Returns zero for success or non-zero for failure
  *
  */
-__attribute__((section(".api")))
-__attribute__((noinline))
-__attribute__((used))
-uint32_t EraseChip()
-{
-    uint32_t qmspi_status = 0; 
+// __attribute__((section(".api")))
+// __attribute__((noinline))
+// __attribute__((used))
+// uint32_t EraseChip()
+// {
+//     uint32_t qmspi_status = 0; 
 
-    return w25m512_chip_erase_sequence(&qmspi_status);
-}
+//     return w25m512_chip_erase_sequence(&qmspi_status);
+// }
 
 // -----------------------------------------------------------------------------
 
@@ -477,20 +477,20 @@ uint8_t w25m512_sector_erase(uint32_t address, uint32_t *qmspi_status)
  * @return      Returns zero for success or non-zero for failure
  *
  */
-uint8_t w25m512_chip_erase(uint32_t *qmspi_status)
-{
-    SERIAL_FLASH_COMMAND cmd;
-    uint8_t cmd_buffer[COMMAND_BUFFER_SIZE]={0}; 
+// uint8_t w25m512_chip_erase(uint32_t *qmspi_status)
+// {
+//     SERIAL_FLASH_COMMAND cmd;
+//     uint8_t cmd_buffer[COMMAND_BUFFER_SIZE]={0}; 
     
-	cmd_buffer[0] = 0xC7;
+// 	   cmd_buffer[0] = 0xC7;
         
-    cmd.write_buf = &cmd_buffer[0];
-    cmd.write_len = 1;
-    cmd.read_buf = NULL;
-    cmd.read_len = 0;
+//     cmd.write_buf = &cmd_buffer[0];
+//     cmd.write_len = 1;
+//     cmd.read_buf = NULL;
+//     cmd.read_len = 0;
 
-    return flash_process_cmd(&cmd, qmspi_status);   
-}
+//     return flash_process_cmd(&cmd, qmspi_status);   
+// }
 
 /**
  * @brief       Select the active NOR flash chip die number
@@ -501,21 +501,21 @@ uint8_t w25m512_chip_erase(uint32_t *qmspi_status)
  * @return      Returns zero for success or non-zero for failure
  *
  */
-uint8_t w25m512_die_select(uint8_t die_number, uint32_t *qmspi_status)
-{
-    SERIAL_FLASH_COMMAND cmd;
-    uint8_t cmd_buffer[COMMAND_BUFFER_SIZE]={0}; 
+// uint8_t w25m512_die_select(uint8_t die_number, uint32_t *qmspi_status)
+// {
+//     SERIAL_FLASH_COMMAND cmd;
+//     uint8_t cmd_buffer[COMMAND_BUFFER_SIZE]={0}; 
     
-	cmd_buffer[0] = 0xC2;
-	cmd_buffer[1] = die_number;
+// 	   cmd_buffer[0] = 0xC2;
+// 	   cmd_buffer[1] = die_number;
         
-    cmd.write_buf = &cmd_buffer[0];
-    cmd.write_len = 2;
-    cmd.read_buf = NULL;
-    cmd.read_len = 0;
+//     cmd.write_buf = &cmd_buffer[0];
+//     cmd.write_len = 2;
+//     cmd.read_buf = NULL;
+//     cmd.read_len = 0;
 
-    return flash_process_cmd(&cmd, qmspi_status);   
-}
+//     return flash_process_cmd(&cmd, qmspi_status);   
+// }
 
 /**
  * @brief       Read SPI NOR flash status register
@@ -645,7 +645,7 @@ uint8_t w25m512_write_disable(uint32_t *qmspi_status)
 uint8_t flash_write_page(uint32_t page_address, uint32_t memory_address, uint32_t data_size, uint32_t *qmspi_status)
 {
     SERIAL_FLASH_COMMAND cmd;
-    uint8_t g_page_program_buffer[W25M512_SECTOR_SIZE + COMMAND_BUFFER_SIZE];
+    uint8_t g_page_program_buffer[W25M512_PAGE_SIZE + COMMAND_BUFFER_SIZE];
 
     g_page_program_buffer[0] = 0x02;
     g_page_program_buffer[1] = (page_address >> 16) & 0xFF;
@@ -770,70 +770,70 @@ uint8_t w25m512_sector_erase_sequence(uint32_t sector_address, uint32_t *qmspi_s
  *
  * @note        There are two dies on this chip.  The erase is performed in parallel.
  */
-uint8_t w25m512_chip_erase_sequence(uint32_t *qmspi_status)
-{    
-    uint8_t ret_val = 0;
-    uint8_t die_number;
-    uint8_t die_busy;
+// uint8_t w25m512_chip_erase_sequence(uint32_t *qmspi_status)
+// {    
+//     uint8_t ret_val = 0;
+//     uint8_t die_number;
+//     uint8_t die_busy;
    
-    // There are two dies on this chip.  Issue parallel die erases in order to save time.
-    for (die_number = 0 ; die_number < 2 ; die_number++) {
+//     // There are two dies on this chip.  Issue parallel die erases in order to save time.
+//     for (die_number = 0 ; die_number < 2 ; die_number++) {
 
-        // Select the chip die by number
-        if (w25m512_die_select(die_number, qmspi_status)) {
-            ret_val = 1;
-            goto exit;
-        }
+//         // Select the chip die by number
+//         if (w25m512_die_select(die_number, qmspi_status)) {
+//             ret_val = 1;
+//             goto exit;
+//         }
 
-        // Enable writes to flash
-        if (w25m512_write_enable(qmspi_status)) {
-            ret_val = 1;
-            goto exit;
-        }        
+//         // Enable writes to flash
+//         if (w25m512_write_enable(qmspi_status)) {
+//             ret_val = 1;
+//             goto exit;
+//         }        
 
-        // Erase flash on the selected die
-        if (w25m512_chip_erase(qmspi_status)) {
-            ret_val = 1;
-            goto exit;
-        }        
-    }
+//         // Erase flash on the selected die
+//         if (w25m512_chip_erase(qmspi_status)) {
+//             ret_val = 1;
+//             goto exit;
+//         }        
+//     }
 
-    // Now wait for both to finish
-    do {
-        // Select die 0
-        if (w25m512_die_select(0, qmspi_status)) {
-            ret_val = 1;
-            break;
-        }
+//     // Now wait for both to finish
+//     do {
+//         // Select die 0
+//         if (w25m512_die_select(0, qmspi_status)) {
+//             ret_val = 1;
+//             break;
+//         }
 
-        // Check if die0 is still busy
-        ret_val = w25m512_check_busy(&die_busy, 
-                                     80000,     // Wait up to 80 seconds (normally finished in 68 seconds)
-                                     CHIP_ERASE_CHECK_BUSY_POLL_MS, 
-                                     qmspi_status);
-        if (ret_val || die_busy) {
-            ret_val = 1;
-            break;
-        } 
+//         // Check if die0 is still busy
+//         ret_val = w25m512_check_busy(&die_busy, 
+//                                      80000,     // Wait up to 80 seconds (normally finished in 68 seconds)
+//                                      CHIP_ERASE_CHECK_BUSY_POLL_MS, 
+//                                      qmspi_status);
+//         if (ret_val || die_busy) {
+//             ret_val = 1;
+//             break;
+//         } 
 
-        // Select die 1
-        if (w25m512_die_select(1, qmspi_status)) {
-            ret_val = 1;
-            break;
-        }
+//         // Select die 1
+//         if (w25m512_die_select(1, qmspi_status)) {
+//             ret_val = 1;
+//             break;
+//         }
 
-        // Check if die1 is still busy (by now we've waited on die0 and so
-        // erasing die1 shouldn't take that much longer)
-        ret_val = w25m512_check_busy(&die_busy, 
-                                     10000,     // Wait up to 10 seconds
-                                     CHIP_ERASE_CHECK_BUSY_POLL_MS, 
-                                     qmspi_status);
-        if (ret_val || die_busy) {
-            ret_val = 1;
-            break;
-        } 
-    } while (0);
+//         // Check if die1 is still busy (by now we've waited on die0 and so
+//         // erasing die1 shouldn't take that much longer)
+//         ret_val = w25m512_check_busy(&die_busy, 
+//                                      10000,     // Wait up to 10 seconds
+//                                      CHIP_ERASE_CHECK_BUSY_POLL_MS, 
+//                                      qmspi_status);
+//         if (ret_val || die_busy) {
+//             ret_val = 1;
+//             break;
+//         } 
+//     } while (0);
 
-exit:
-    return ret_val;    
-}
+// exit:
+//     return ret_val;    
+// }
