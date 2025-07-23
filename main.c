@@ -6,6 +6,8 @@
 #include <MCHP_MEC1703_C0.h>
 #include <serial_flash_sst25pf.h>
 
+#undef YUKON_PLATFORM
+
 // Retry count for polling 'api_qmspi_is_done_status' in milliseconds
 #define QMSPI_STATUS_RETRY_COUNT    200
 #define W25M512_PAGE_SIZE           0x100
@@ -55,6 +57,17 @@ uint32_t Init(uint32_t address)
 
     // Initialize the SPI controller
     platform_qmspi_init(SHD_SPI);
+
+    // Set the SPI NOR flash mux to EC (GPIO 142 needs to be set high for EC access)
+    //
+    // NOTE: this mux setting is only relevant for the NV Yukon platform and this isn't
+    // in the generic MEC17xx probe-rs flash routine blob.
+    //
+    // Set the GPIO 142 pin control register directly 
+    //
+#ifdef YUKON_PLATFORM
+    *(uint32_t *)(0x40081188) = 0x10240;
+#endif  // YUKON_PLATFORM
 
     return 0;
 }
@@ -232,7 +245,7 @@ void timer_delay_ms(uint32_t num_ms)
 void platform_qmspi_init(uint8_t spi_port){
     
     api_qmspi_port_ctrl(spi_port, SPI_IO_FD_DUAL, DEV_ENABLE);
-    api_qmspi_init(QMSPI_SPI_MODE_0, QMSPI_FREQ_24M, NONE);
+    api_qmspi_init(QMSPI_SPI_MODE_0, QMSPI_FREQ_16M, NONE);
     DMA_MAIN_INST->DMA_MAIN_CONTROL = 1;
 }
 
@@ -381,6 +394,24 @@ uint8_t api_qmspi_flash_cmd(uint32_t ntx, uint8_t *ptx, uint32_t nrx, uint8_t *p
         if (!(qmspi_tx_rx(RX_MODE, nrx, prx, &n2, ftmout))) {
             rc = 6;
             // stop & close transaction
+            QMSPI0->CTRL.w |= QMSPI_C_XFR_CLOSE;
+            QMSPI0->EXE.b[0] = QMSPI_EXE_STOP;
+            return rc;
+        }
+    }
+
+    // Wait for transfer to complete before closing transaction
+    // This ensures all bytes are physically transmitted to the flash
+    {
+        uint16_t timeout_count = QMSPI_STATUS_RETRY_COUNT;
+        while (qmspi_status_mask(QMSPI_TX_BUFF_EMPTY) == false && (timeout_count > 0)) {
+            timer_delay_ms(1);  // Wait 1ms between checks
+            timeout_count--;
+        }
+        
+        // If we timed out while transfer was still active, that's an error condition
+        if (qmspi_status_mask(QMSPI_TX_BUFF_EMPTY) == false) {
+            rc = 7;
             QMSPI0->CTRL.w |= QMSPI_C_XFR_CLOSE;
             QMSPI0->EXE.b[0] = QMSPI_EXE_STOP;
             return rc;
@@ -655,7 +686,7 @@ uint8_t flash_write_page(uint32_t page_address, uint32_t memory_address, uint32_
     memcpy(&g_page_program_buffer[COMMAND_BUFFER_SIZE], (uint8_t *)memory_address, data_size);
 
     cmd.write_buf = &g_page_program_buffer[0];
-    cmd.write_len = sizeof(g_page_program_buffer);
+    cmd.write_len = COMMAND_BUFFER_SIZE + data_size;
     cmd.read_buf = NULL;
     cmd.read_len = 0;
 

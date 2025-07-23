@@ -23,7 +23,7 @@ SECTIONS
 
   /* Uninitialized data section */
   /* NOTE: probe-rs doesn't consider .bss section data
-           when calculatin the target memory layout */
+           when calculating the target memory layout */
   .bss : {
     *(.bss)
     *(.bss.*)
@@ -32,7 +32,7 @@ SECTIONS
 
   /* Read-only data section */
   /* NOTE: probe-rs doesn't consider .rodata section data
-           when calculatin the target memory layout */
+           when calculating the target memory layout */
   .rodata : {
     *(.rodata)
     *(.rodata.*)
