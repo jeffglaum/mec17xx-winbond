@@ -7,6 +7,7 @@
 #include <serial_flash_sst25pf.h>
 
 #undef YUKON_PLATFORM
+//#define YUKON_PLATFORM
 
 // Retry count for polling 'api_qmspi_is_done_status' in milliseconds
 #define QMSPI_STATUS_RETRY_COUNT    200

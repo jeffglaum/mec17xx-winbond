@@ -1,7 +1,7 @@
 SECTIONS
 {
   /* Start of memory */
-  . = 0xc0020;
+  . = 0xc0400;
 
   /* API Code section */
   .api : {
